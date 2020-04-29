@@ -4,7 +4,6 @@ int main()
 {
 	
 	printf("hello world");
-	printf("\ntest??");
 	
 	return 0;
 }
