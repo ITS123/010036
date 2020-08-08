@@ -4,8 +4,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+
 extern void predict_classifier(char *datacfg, char *cfgfile, char *weightfile, char *filename, int top);
 extern void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen);
+extern void socket_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen);
 extern void run_yolo(int argc, char **argv);
 extern void run_detector(int argc, char **argv);
 extern void run_coco(int argc, char **argv);
@@ -402,7 +409,6 @@ int main(int argc, char **argv)
     //test_resize("data/bad.jpg");
     //test_box();
     //test_convolutional_layer();
-
     //입력으로 들어오는 파라미터의 갯수가 2개보다 작을 때, 에러메세지 출력하고 종료
     if(argc < 2){
         fprintf(stderr, "usage: %s <function>\n", argv[0]);
@@ -426,8 +432,11 @@ int main(int argc, char **argv)
     if (0 == strcmp(argv[1], "average")){
         average(argc, argv);
     } else if (0 == strcmp(argv[1], "socket")){
-        printf("make success\n\n");
-        return 0;
+        float thresh = find_float_arg(argc, argv, "-thresh", .5);
+        char *filename = (argc > 4) ? argv[4]: 0;
+        char *outfile = find_char_arg(argc, argv, "-out", 0);
+        int fullscreen = find_arg(argc, argv, "-fullscreen");
+        socket_detector("cfg/coco.data", argv[2], argv[3], filename, thresh, .5, outfile, fullscreen);
     } else if (0 == strcmp(argv[1], "yolo")){
         run_yolo(argc, argv);
     } else if (0 == strcmp(argv[1], "super")){
@@ -441,7 +450,7 @@ int main(int argc, char **argv)
         char *filename = (argc > 4) ? argv[4]: 0;
         char *outfile = find_char_arg(argc, argv, "-out", 0);
         int fullscreen = find_arg(argc, argv, "-fullscreen");
-        test_detector("cfg/coco.data", argv[2], argv[3], filename, thresh, .5, outfile, fullscreen);
+        test_detector("cfg/coco.data", argv[2], argv[3], "a", thresh, .5, outfile, fullscreen);
     } else if (0 == strcmp(argv[1], "cifar")){
         run_cifar(argc, argv);
     } else if (0 == strcmp(argv[1], "go")){

@@ -1,9 +1,14 @@
-#ifdef OPENCV
+//#ifdef OPENCV
 
 #include "stdio.h"
 #include "stdlib.h"
 #include "opencv2/opencv.hpp"
 #include "image.h"
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 using namespace cv;
 
@@ -87,6 +92,25 @@ image get_image_from_stream(void *p)
     return mat_to_image(m);
 }
 
+image load_image_cv_soc(int ROW, int COL)
+{
+    Mat img(ROW, COL, 16);
+
+    for(short i=0; i<ROW; i++)
+    {
+        for(short j=0; j<COL; j++)
+        {
+                Vec3b& p1 = img.at<Vec3b>(i,j);
+
+                p1[0] = 0;
+                p1[1] = 0;
+                p1[2] = 0;
+        }
+    }
+    image im = mat_to_image(img);
+    return im;
+}
+
 image load_image_cv(char *filename, int channels)
 {
     int flag = -1;
@@ -130,6 +154,116 @@ void make_window(char *name, int w, int h, int fullscreen)
     }
 }
 
+void socket_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen)
+{
+    list *options = read_data_cfg(datacfg);
+    char *name_list = option_find_str(options, "names", "data/names.list");
+    char **names = get_labels(name_list);
+
+    image **alphabet = load_alphabet();
+    network *net = load_network(cfgfile, weightfile, 0);
+    set_batch_network(net, 1);
+    srand(2222222);
+    double time;
+    char buff[256];
+    char *input = buff;
+    float nms=.45;
+
+    int server_socket;
+    int client_socket; 
+    int client_addr_size;
+    struct sockaddr_in server_addr;
+    struct sockaddr_in client_addr;
+
+    //소켓 생성
+    server_socket  = socket( AF_INET, SOCK_STREAM, 0);
+    if( -1 == server_socket){ puts("소켓 생성 실패"); exit(1); }
+    else puts("소켓 생성");
+
+    memset( &server_addr, 0, sizeof( server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(11111);
+    server_addr.sin_addr.s_addr= htonl(INADDR_ANY);
+ 
+    //바인딩
+    if( -1 == bind( server_socket, (struct sockaddr*)&server_addr, sizeof( server_addr)))
+    { puts("bind : Fail"); exit(1); }
+    else puts("bind : Success");
+
+    //대기 상태 설정
+    if( -1 == listen(server_socket, 5)) { puts("요청 대기 실패"); exit(1); }   
+    else puts("요청 대기");
+
+    //클라이언트 연결
+    client_addr_size = sizeof(client_addr);
+    client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)&client_addr_size);
+    if ( -1 == client_socket){ puts( "클라이언트 연결 실패"); exit(1); }   
+    else puts( "클라이언트 연결 성공");
+
+     int32_t size_bus[3] = {0};
+    if(recv(client_socket, size_bus, sizeof(size_bus), 0) < 0)
+        printf("receive error");
+
+    int32_t ROW = ntohl(size_bus[0]);
+    int32_t COL = ntohl(size_bus[1]);
+    int TYPE = ntohl(size_bus[2]);
+    int32_t image_bus[COL*3] = {0};
+
+    Mat img(ROW, COL, 16);
+    int col = 0;
+    int count = 0;
+    
+    printf("%d %d", ROW, COL);
+
+    //데이터 수신
+    while (1)
+    {      
+        if(recv(client_socket, image_bus, sizeof(image_bus), 0) < 0)
+            printf("receive error");
+        else{
+            for(short j = 0; j<COL; j++){
+                Vec3b& p1 = img.at<Vec3b>(count,j);
+
+                p1[0] = ntohl(image_bus[3*j]);
+                p1[1] = ntohl(image_bus[3*j+1]);
+                p1[2] = ntohl(image_bus[3*j+2]);
+                col++;
+            }
+        }
+        ++count;
+        if(count == ROW)
+        {
+            image im = mat_to_image(img);
+                
+            image sized = letterbox_image(im, net->w, net->h);
+            layer l = net->layers[net->n-1];
+
+
+            float *X = sized.data;
+            time=what_time_is_it_now();
+            network_predict(net, X);
+            printf("%s: Predicted in %f seconds.\n", input, what_time_is_it_now()-time);
+            int nboxes = 0;
+            detection *dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, 0, 1, &nboxes);
+
+            if (nms) do_nms_sort(dets, nboxes, l.classes, nms);
+            draw_detections(im, dets, nboxes, thresh, names, alphabet, l.classes);
+            free_detections(dets, nboxes);
+
+            Mat result = image_to_mat(im);
+            imshow("img_server",result);
+            free_image(im);
+            free_image(sized);
+            if(waitKey(30)==27) break;
+            count = 0;
+        }
+        
+    }
+
+    close(client_socket);
+    close(server_socket);
+
 }
 
-#endif
+}
+//#endif

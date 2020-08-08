@@ -22,6 +22,7 @@ extern "C" {
 #endif
 
 #define SECRET_NUM -1234
+#define SOCKET 1
 extern int gpu_index;
 
 typedef struct{
