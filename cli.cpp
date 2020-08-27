@@ -28,7 +28,7 @@ int main( int argc, char *argv[])
     server_addr.sin_port = htons(atoi(argv[1]));
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    if( -1 == connect( client_socket, \                                                 //접속 시도
+    if( -1 == connect( client_socket, \
                     (struct sockaddr*)&server_addr, \
                     sizeof( server_addr)))\
                     { puts("접속 : Fail"); exit(1); }
