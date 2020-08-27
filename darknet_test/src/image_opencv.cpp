@@ -148,8 +148,9 @@ void socket_detector(char *datacfg, char *cfgfile, char *weightfile, float thres
     network *net = load_network(cfgfile, weightfile, 0);
     set_batch_network(net, 1);
     srand(2222222);
-    double time;
+    //double time;
     float nms=.45;
+    int n;
 
     int server_socket;
     int client_socket; 
@@ -159,110 +160,83 @@ void socket_detector(char *datacfg, char *cfgfile, char *weightfile, float thres
 
     while(1)
     {
-        //소켓 생성
-    server_socket  = socket( AF_INET, SOCK_STREAM, 0);
-    if( -1 == server_socket){ puts("소켓 생성 실패"); exit(1); }
-    else puts("소켓 생성");
+        server_socket  = socket( AF_INET, SOCK_STREAM, 0);
+        if( -1 == server_socket){ puts("소켓 생성 실패"); exit(1); }
+        else puts("소켓 생성");
 
-    memset( &server_addr, 0, sizeof( server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port_num);    //포트 넘버 고정된 상태
-    server_addr.sin_addr.s_addr= htonl(INADDR_ANY);
- 
-    //바인딩
-    if( -1 == bind( server_socket, (struct sockaddr*)&server_addr, sizeof( server_addr)))
-    { puts("bind : Fail"); exit(1); }
-    else puts("bind : Success");
+        memset( &server_addr, 0, sizeof( server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(port_num);
+        server_addr.sin_addr.s_addr= htonl(INADDR_ANY);
 
-    //대기 상태 설정
-    if( -1 == listen(server_socket, 5)) { puts("요청 대기 실패"); exit(1); }   
-    else puts("요청 대기");
+        if( -1 == bind( server_socket, \
+                        (struct sockaddr*)&server_addr,\
+                         sizeof( server_addr)))
+            { puts("bind : Fail"); exit(1); }        
+        else puts("bind : Success");
 
-    //클라이언트 연결
-    client_addr_size = sizeof(client_addr);
-    client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)&client_addr_size);
-    if ( -1 == client_socket){ puts( "클라이언트 연결 실패"); exit(1); }   
-    else puts( "클라이언트 연결 성공");
+        if( -1 == listen(server_socket, 5)) { puts("요청 대기 실패"); exit(1); }   
+        else puts("요청 대기");
 
-    int size_bus[3] = {0};
-    if(recv(client_socket, size_bus, sizeof(size_bus), 0) == -1)
-        printf("receive error");
+        client_addr_size = sizeof(client_addr);
+        client_socket = accept(server_socket, \
+                                (struct sockaddr*)&client_addr,\
+                                 (socklen_t*)&client_addr_size);
+        if ( -1 == client_socket){ puts( "클라이언트 연결 실패"); exit(1); }   
+        else puts( "클라이언트 연결 성공");
 
-    int ROW = ntohl(size_bus[0]);
-    int COL = ntohl(size_bus[1]);
-    //int TYPE = ntohl(size_bus[2]);
-    int image_bus[COL*3] = {0};
-    int end_sign = 0;
-
-    Mat img(ROW, COL, 16);
-    int count_ROW = 0;
-    int detect_index = 0;
-
-    //데이터 수신
-    while (1)
-    {     
-        if(end_sign > 100) break;
-        if(recv(client_socket, image_bus, sizeof(image_bus), 0) == -1)
+        int size_bus[2] = {0};
+        if(recv(client_socket, size_bus, sizeof(size_bus), 0) == -1)
             printf("receive error");
-        else
-        {
-            uchar* p_img = img.ptr<uchar>(count_ROW);
-            for(short j = 0; j<COL; j++)
-            {
-                p_img[3*j+0] = ntohl(image_bus[3*j]);      //b
-                p_img[3*j+1] = ntohl(image_bus[3*j+1]);    //g
-                p_img[3*j+2] = ntohl(image_bus[3*j+2]);    //r
 
-                //printf("%d\n", p_img[3*j+0] + p_img[3*j+1] + p_img[3*j+2]);
-                if(p_img[3*j+0] == 101 && p_img[3*j+1] == 110 && p_img[3*j+2] == 100)
-                {
-                    end_sign++;
+        uint32_t ROW = ntohl(size_bus[0]);
+        uint32_t COL = ntohl(size_bus[1]);
+        Mat img(ROW, COL, CV_16UC3);
+        int  imgSize = img.total()*img.elemSize();
+        uchar sockData[imgSize];
+
+        while (1)
+        {
+            for (int i = 0; i < imgSize; i += n) {
+                if ((n = recv(client_socket, sockData +i, imgSize  - i, 0)) == -1) {
+                    return ;
                 }
             }
-            count_ROW++;
-        }        
-        if(count_ROW == ROW)
-        {    
-            if(detect_index == 0)
-            {
-                detect_index++;
-                image im = mat_to_image(img);
-                image sized = letterbox_image(im, net->w, net->h);
-                layer l = net->layers[net->n-1];
-
-                float *X = sized.data;
-                time=what_time_is_it_now();
-                network_predict(net, X);
-                //printf("Predicted in %f seconds.\n", what_time_is_it_now()-time);
-                int nboxes = 0;
-                detection *dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, 0, 1, &nboxes);
-
-                if (nms) do_nms_sort(dets, nboxes, l.classes, nms);
-                draw_detections(im, dets, nboxes, thresh, names, alphabet, l.classes);
-                free_detections(dets, nboxes);
-
-                Mat result = image_to_mat(im);
-                imshow("img_server",result);
-                free_image(im);
-                free_image(sized);
-                if(waitKey(30)==27) break;  
-                count_ROW = 0;              
+        
+            int ptr=0;
+        
+            for (int i = 0;  i < (int)ROW; i++) {
+                for (int j = 0; j < (int)COL; j++) {                 
+                    img.at<Vec3b>(i,j) = Vec3b(sockData[ptr+ 0],sockData[ptr+1],sockData[ptr+2]);
+                    ptr=ptr+3;
+                }
             }
-            else
-            {
-                if (detect_index == DETECT_INDEX_MAX) detect_index = 0;
-                else detect_index++;  
-                count_ROW = 0;
-            }
-            count_ROW = 0;
-        }        
-    }
+
+            image im = mat_to_image(img);
+            image sized = letterbox_image(im, net->w, net->h);
+            layer l = net->layers[net->n-1];
+
+            float *X = sized.data;
+            //time=what_time_is_it_now();
+            network_predict(net, X);
+            int nboxes = 0;
+            detection *dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, 0, 1, &nboxes);
+
+            if (nms) do_nms_sort(dets, nboxes, l.classes, nms);
+            draw_detections(im, dets, nboxes, thresh, names, alphabet, l.classes);
+            free_detections(dets, nboxes);
+
+            Mat result = image_to_mat(im);
+            imshow("img_server",result);
+            free_image(im);
+            free_image(sized);
+            if(waitKey(30)==27) break;         
+        }
     
-    close(client_socket);
-    close(server_socket);
-    destroyAllWindows();
+        close(client_socket);
+        close(server_socket);
+        destroyAllWindows();
     }
-
 }
 }
 //#endif

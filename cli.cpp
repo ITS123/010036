@@ -13,108 +13,56 @@ using namespace std;
 
 #define ROW_SIZE 240
 #define COL_SIZE 320
-#define SEND_INDEX_MAX 1
-#define END_SIGN 0
-
-Mat make_end_image(int ROW, int COL);
-void send_image(Mat end_image,int client_socket, int *p, double size);
 
 int main( int argc, char *argv[])
 {
-    int client_socket;
-    struct sockaddr_in server_addr;
+    int client_socket;                                                                  //소켓                          
+    struct sockaddr_in server_addr;                                                     //서버 주소
 
-    VideoCapture cap("test_video.mp4");
-    double fps = cap.get(CAP_PROP_FPS);
-    int delay = cvRound(1000/(int)fps);
-
-    Mat img,sample;
-    cap >> sample;
-    int image_bus[COL_SIZE*3] = {0};
-    int size_bus[3] = {htonl(ROW_SIZE), htonl(COL_SIZE), htonl(sample.type())};
-    short send_index = 0;
-
-    client_socket  = socket(AF_INET, SOCK_STREAM, 0);
+    client_socket  = socket(AF_INET, SOCK_STREAM, 0);                                   //TCP 소켓 생성
     if( -1 == client_socket){ puts("소켓 생성 실패"); exit(1); }
     else puts("소켓 생성");
 
-    memset( &server_addr, 0, sizeof( server_addr));
+    memset( &server_addr, 0, sizeof( server_addr));                                     //통신할 서버 IP 할당
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(atoi(argv[1]));
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    if( -1 == connect( client_socket, (struct sockaddr*)&server_addr, sizeof( server_addr))){ puts("접속 : Fail"); exit(1); }
+    if( -1 == connect( client_socket, \                                                 //접속 시도
+                    (struct sockaddr*)&server_addr, \
+                    sizeof( server_addr)))\
+                    { puts("접속 : Fail"); exit(1); }
+
     else puts("접속 : Success");    
 
-    if(send(client_socket, size_bus, sizeof(size_bus),0) < 0) printf("send error/n");   
+    uint32_t size_bus[2] = {htonl(ROW_SIZE), htonl(COL_SIZE)};                          //이미지 행렬 크기
+    if(send(client_socket, size_bus, sizeof(size_bus),0) < 0) printf("send error/n");   //이미지 크기 전송
+
+    VideoCapture cap("test_video.mp4");                                                 //영상 추출
+    double fps = cap.get(CAP_PROP_FPS);                                                 //영상 프레임 추출
+    int delay = cvRound(1000/(int)fps);                                                 //딜레이 설정
 
     while(1)
     {
-        cap.read(img);
-        if(img.empty())
-        {
-            Mat end_image(ROW_SIZE, COL_SIZE, 16);
-            end_image = make_end_image(ROW_SIZE, COL_SIZE);
-            for(short a=0; a<5;a++)
-                send_image(end_image, client_socket, image_bus, sizeof(image_bus));    
+        Mat img;                                                                        //전송할 이미지
 
-            printf("send end sign\n");
-            imshow("img_client",end_image);
-            break;
+        cap.read(img);                                                                  //프레임
+        resize(img, img, Size(COL_SIZE, ROW_SIZE),0,0,CV_INTER_NN);                     //크기 조절
+
+        if(! img.data )                                                                 //데이터 없을 시 에러
+        {
+            cout <<  "Could not open or find the image" << std::endl ;
+            return -1;
         }
 
-        resize(img, img, Size(COL_SIZE, ROW_SIZE),0,0,CV_INTER_NN);
-
-        if(send_index == 0)
-        {
-            send_image(img, client_socket, image_bus, sizeof(image_bus));
-            send_index++;            
-        } 
-        else
-        {
-            if (send_index == SEND_INDEX_MAX) send_index = 0;
-            else send_index++;
-            send_index = 0;
-        }            
-        imshow("img_client",img);
-        if(waitKey(delay) == 27) break;
+        int  imgSize = img.total()*img.elemSize();                                      //이미지의 총 데이터 크기
+        send(client_socket, img.data, imgSize, 0);                                      //이미지 전송
+        imshow("img_client",img);                                                       //전송한 이미지 출력
+        if(waitKey((int)delay/5) == 27) break;                                          //딜레이
     }
+
     cap.release();
     destroyAllWindows();
-    if(close(client_socket) == 0) printf("소켓 닫음\n");
+    if(close(client_socket) == 0) printf("소켓 닫음\n");                                 //소켓 폐기
     return 0;
-}
-
-Mat make_end_image(int ROW, int COL)
-{
-    Mat end_image(ROW_SIZE, COL_SIZE, 16);
-
-     for (short i = 0; i < ROW_SIZE; i++)
-    {
-        uchar* p_img = end_image.ptr<uchar>(i);
-
-        for (short j = 0; j < COL_SIZE; j++)
-        {
-            p_img[3*j+0] = 101;
-            p_img[3*j+1] = 110;
-            p_img[3*j+2] = 100;
-        }
-    }
-    return end_image;
-}
-
-void send_image(Mat end_image,int client_socket, int *p, double size)
-{
-    for (short i = 0; i < ROW_SIZE; i++)
-    {
-        uchar* p_img = end_image.ptr<uchar>(i);
-
-        for (short j = 0; j < COL_SIZE; j++)
-        {
-            p[3*j] = htonl(p_img[j*3+0]);
-            p[3*j+1] = htonl(p_img[j*3+1]);
-            p[3*j+2] = htonl(p_img[j*3+2]);             
-        }
-        send(client_socket, p, size,0);                               
-    }                                
 }
