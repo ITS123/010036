@@ -148,9 +148,7 @@ void socket_detector(char *datacfg, char *cfgfile, char *weightfile, float thres
     network *net = load_network(cfgfile, weightfile, 0);
     set_batch_network(net, 1);
     srand(2222222);
-    //double time;
     float nms=.45;
-    int n;
 
     int server_socket;
     int client_socket; 
@@ -185,28 +183,25 @@ void socket_detector(char *datacfg, char *cfgfile, char *weightfile, float thres
         if ( -1 == client_socket){ puts( "클라이언트 연결 실패"); exit(1); }   
         else puts( "클라이언트 연결 성공");
 
-        int size_bus[2] = {0};
+        int size_bus[4] = {0};
         if(recv(client_socket, size_bus, sizeof(size_bus), 0) == -1)
             printf("receive error");
 
         uint32_t ROW = ntohl(size_bus[0]);
         uint32_t COL = ntohl(size_bus[1]);
-        Mat img(ROW, COL, CV_16UC3);
-        int  imgSize = img.total()*img.elemSize();
+        uint32_t TYPE = ntohl(size_bus[2]);
+        uint32_t CHANNELS = ntohl(size_bus[3]);
+        Mat img(ROW, COL, TYPE+CHANNELS-1);
+        int  imgSize = img.cols*img.elemSize()/2;
         uchar sockData[imgSize];
 
         while (1)
-        {
-            for (int i = 0; i < imgSize; i += n) {
-                if ((n = recv(client_socket, sockData +i, imgSize  - i, 0)) == -1) {
-                    return ;
-                }
-            }
-        
-            int ptr=0;
-        
-            for (int i = 0;  i < (int)ROW; i++) {
-                for (int j = 0; j < (int)COL; j++) {                 
+        {          
+            for(short i = 0; i<(short)ROW; i++){
+                if (recv(client_socket, sockData, imgSize, 0) == -1) return;
+
+                int ptr=0;
+                for (short j = 0; j < (short)COL; j++) {                 
                     img.at<Vec3b>(i,j) = Vec3b(sockData[ptr+ 0],sockData[ptr+1],sockData[ptr+2]);
                     ptr=ptr+3;
                 }
@@ -217,7 +212,6 @@ void socket_detector(char *datacfg, char *cfgfile, char *weightfile, float thres
             layer l = net->layers[net->n-1];
 
             float *X = sized.data;
-            //time=what_time_is_it_now();
             network_predict(net, X);
             int nboxes = 0;
             detection *dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, 0, 1, &nboxes);
